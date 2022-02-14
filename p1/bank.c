@@ -11,6 +11,7 @@
 struct bank {
     int num_accounts;        // number of accounts
     int *accounts;           // balance array
+    pthread_mutex_t *mutex;  //Mutex para cada cuenta
 };
 
 struct args {
@@ -37,7 +38,9 @@ void *deposit(void *ptr)
         account = rand() % args->bank->num_accounts;
 
         printf("Thread %d depositing %d on account %d\n",
-            args->thread_num, amount, account);
+               args->thread_num, amount, account);
+
+        pthread_mutex_lock(&args->bank->mutex[account]);
 
         balance = args->bank->accounts[account];
         if(args->delay) usleep(args->delay); // Force a context switch
@@ -49,18 +52,73 @@ void *deposit(void *ptr)
         if(args->delay) usleep(args->delay);
 
         args->net_total += amount;
+
+        pthread_mutex_unlock(&args->bank->mutex[account]);
     }
     return NULL;
 }
 
+//Transferencias
+void *transferencia(void *ptr){
+
+    struct args *args = ptr;
+    int amount, account1, account2, balance1, balance2;
+
+    while(args->iterations--){
+        account1 = rand() % args->bank->num_accounts;
+        do{
+            account2 = rand() % args -> bank -> num_accounts;
+        }while (account2 == account1); //Do while que corrige la posible transferencia de una cuenta a ella misma
+
+        if(args->bank->accounts[account1] > 0){
+            amount = rand() % args->bank->accounts[account1]; //Cantidad transferida random entre 0 y el total de account1
+        }else{
+            amount = 0;
+        }
+
+        printf("Thread %d depositing %d from account %d to account %d\n",
+               args->thread_num, amount, account1, account2);
+
+        if(&args->bank->mutex[account1] < &args->bank->mutex[account2]){ // Reserva ordenada
+            pthread_mutex_lock(&args->bank->mutex[account1]);
+            pthread_mutex_lock(&args->bank->mutex[account2]);
+        }else{
+            pthread_mutex_lock(&args->bank->mutex[account2]);
+            pthread_mutex_lock(&args->bank->mutex[account1]);
+        }
+
+        balance1 = args->bank->accounts[account1];
+        balance2 = args->bank->accounts[account2];
+        if(args->delay) usleep(args->delay); // Force a context switch
+
+        balance1 -= amount; //Restamos a la primera cuenta lo transferido (localmente)
+        balance2 += amount; //Sumamos a la segunda cuenta lo transferido (localmente)
+        if(args->delay) usleep(args->delay); // Force a context switch
+
+        args->bank->accounts[account1] = balance1;
+        args->bank->accounts[account2] = balance2;
+        if(args->delay) usleep(args->delay); // Force a context switch
+
+        args->net_total += amount; //Sumamos al thread que envía el dinero lo ingresado
+        pthread_mutex_unlock(&args->bank->mutex[account2]);
+        pthread_mutex_unlock(&args->bank->mutex[account1]);
+    }
+    return NULL;
+}
+
+
+//Totales
+
+
+
 // start opt.num_threads threads running on deposit.
 struct thread_info *start_threads(struct options opt, struct bank *bank)
 {
-    int i;
+    int i,j;
     struct thread_info *threads;
 
-    printf("creating %d threads\n", opt.num_threads);
-    threads = malloc(sizeof(struct thread_info) * opt.num_threads);
+    printf("creating %d threads\n", (2*opt.num_threads));
+    threads = malloc(2*sizeof(struct thread_info) * opt.num_threads);
 
     if (threads == NULL) {
         printf("Not enough memory\n");
@@ -83,12 +141,30 @@ struct thread_info *start_threads(struct options opt, struct bank *bank)
         }
     }
 
+    // threads para las tranferencias
+    for (j = opt.num_threads; j < (2*opt.num_threads); j++) {
+        threads[j].args = malloc(sizeof(struct args));
+
+        threads[j].args -> thread_num = j;
+        threads[j].args -> net_total  = 0;
+        threads[j].args -> bank       = bank;
+        threads[j].args -> delay      = opt.delay;
+        threads[j].args -> iterations = opt.iterations;
+
+        if (0 != pthread_create(&threads[j].id, NULL, transferencia, threads[j].args)) {
+            printf("Could not create thread #%d", j);
+            exit(1);
+        }
+    }
+
+
     return threads;
 }
 
 // Print the final balances of accounts and threads
 void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads) {
-    int total_deposits=0, bank_total=0;
+    int total_deposits=0, bank_total=0, total_transferred=0;
+    //Depositos
     printf("\nNet deposits by thread\n");
 
     for(int i=0; i < num_threads; i++) {
@@ -97,36 +173,54 @@ void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads
     }
     printf("Total: %d\n", total_deposits);
 
+    //Transferencias
+    printf("\nNet transfers by thread \n");
+
+    for(int i = num_threads; i < (2*num_threads); i++){
+        printf("%d: %d\n", i, thrs[i].args->net_total);
+        total_transferred += thrs[i].args->net_total;
+    }
+    printf("Total: %d\n", total_transferred);
+
+    //Balances
     printf("\nAccount balance\n");
+
     for(int i=0; i < bank->num_accounts; i++) {
+        pthread_mutex_lock(&bank->mutex[i]);
         printf("%d: %d\n", i, bank->accounts[i]);
         bank_total += bank->accounts[i];
+        pthread_mutex_unlock(&bank->mutex[i]);
     }
     printf("Total: %d\n", bank_total);
+
 }
 
 // wait for all threads to finish, print totals, and free memory
 void wait(struct options opt, struct bank *bank, struct thread_info *threads) {
     // Wait for the threads to finish
-    for (int i = 0; i < opt.num_threads; i++)
+    for (int i = 0; i < (2*opt.num_threads); i++)
         pthread_join(threads[i].id, NULL);
 
     print_balances(bank, threads, opt.num_threads);
 
-    for (int i = 0; i < opt.num_threads; i++)
+    for (int i = 0; i < (2*opt.num_threads); i++)
         free(threads[i].args);
 
     free(threads);
     free(bank->accounts);
+    free(bank->mutex);
 }
 
 // allocate memory, and set all accounts to 0
 void init_accounts(struct bank *bank, int num_accounts) {
     bank->num_accounts = num_accounts;
     bank->accounts     = malloc(bank->num_accounts * sizeof(int));
+    bank-> mutex = malloc(bank->num_accounts * sizeof(pthread_mutex_t));
 
     for(int i=0; i < bank->num_accounts; i++)
         bank->accounts[i] = 0;
+    for(int i=0; i< bank->num_accounts; i++)
+        pthread_mutex_init(&bank->mutex[i], NULL);
 }
 
 int main (int argc, char **argv)
