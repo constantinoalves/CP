@@ -114,11 +114,11 @@ void *transferencia(void *ptr){
 // start opt.num_threads threads running on deposit.
 struct thread_info *start_threads(struct options opt, struct bank *bank)
 {
-    int i,j;
+    int i;
     struct thread_info *threads;
 
     printf("creating %d threads\n", (2*opt.num_threads));
-    threads = malloc(2*sizeof(struct thread_info) * opt.num_threads);
+    threads = malloc((2*sizeof(struct thread_info) * opt.num_threads) + 1);
 
     if (threads == NULL) {
         printf("Not enough memory\n");
@@ -141,23 +141,23 @@ struct thread_info *start_threads(struct options opt, struct bank *bank)
         }
     }
 
+    for (i = 0; i < opt.num_threads; i++) pthread_join(threads[i].id,NULL);
+    
     // threads para las tranferencias
-    for (j = opt.num_threads; j < (2*opt.num_threads); j++) {
-        threads[j].args = malloc(sizeof(struct args));
+    for (i = opt.num_threads; i < (2*opt.num_threads); i++) {
+        threads[i].args = malloc(sizeof(struct args));
 
-        threads[j].args -> thread_num = j;
-        threads[j].args -> net_total  = 0;
-        threads[j].args -> bank       = bank;
-        threads[j].args -> delay      = opt.delay;
-        threads[j].args -> iterations = opt.iterations;
+        threads[i].args -> thread_num = i;
+        threads[i].args -> net_total  = 0;
+        threads[i].args -> bank       = bank;
+        threads[i].args -> delay      = opt.delay;
+        threads[i].args -> iterations = opt.iterations;
 
-        if (0 != pthread_create(&threads[j].id, NULL, transferencia, threads[j].args)) {
-            printf("Could not create thread #%d", j);
+        if (0 != pthread_create(&threads[i].id, NULL, transferencia, threads[i].args)) {
+            printf("Could not create thread #%d", i);
             exit(1);
         }
     }
-
-
     return threads;
 }
 
@@ -198,9 +198,8 @@ void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads
 // wait for all threads to finish, print totals, and free memory
 void wait(struct options opt, struct bank *bank, struct thread_info *threads) {
     // Wait for the threads to finish
-    for (int i = 0; i < (2*opt.num_threads); i++)
+    for (int i = opt.num_threads; i < (2*opt.num_threads); i++)
         pthread_join(threads[i].id, NULL);
-
     print_balances(bank, threads, opt.num_threads);
 
     for (int i = 0; i < (2*opt.num_threads); i++)
@@ -234,7 +233,7 @@ int main (int argc, char **argv)
     // Default values for the options
     opt.num_threads  = 5;
     opt.num_accounts = 10;
-    opt.iterations   = 100;
+    opt.iterations   = 1;
     opt.delay        = 10;
 
     read_options(argc, argv, &opt);
