@@ -69,7 +69,16 @@ void *transferencia(void *ptr){
         do{
             account2 = rand() % args -> bank -> num_accounts;
         }while (account2 == account1); //Do while que corrige la posible transferencia de una cuenta a ella misma
-
+        
+        
+        if(&args->bank->mutex[account1] < &args->bank->mutex[account2]){ // Reserva ordenada
+            pthread_mutex_lock(&args->bank->mutex[account1]);
+            pthread_mutex_lock(&args->bank->mutex[account2]);
+        }else{
+            pthread_mutex_lock(&args->bank->mutex[account2]);
+            pthread_mutex_lock(&args->bank->mutex[account1]);
+        }
+        
         if(args->bank->accounts[account1] > 0){
             amount = rand() % args->bank->accounts[account1]; //Cantidad transferida random entre 0 y el total de account1
         }else{
@@ -78,14 +87,6 @@ void *transferencia(void *ptr){
 
         printf("Thread %d depositing %d from account %d to account %d\n",
                args->thread_num, amount, account1, account2);
-
-        if(&args->bank->mutex[account1] < &args->bank->mutex[account2]){ // Reserva ordenada
-            pthread_mutex_lock(&args->bank->mutex[account1]);
-            pthread_mutex_lock(&args->bank->mutex[account2]);
-        }else{
-            pthread_mutex_lock(&args->bank->mutex[account2]);
-            pthread_mutex_lock(&args->bank->mutex[account1]);
-        }
 
         balance1 = args->bank->accounts[account1];
         balance2 = args->bank->accounts[account2];
@@ -173,7 +174,7 @@ void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads
     }
     printf("Total: %d\n", total_deposits);
 
-    //Transferencias
+     //Transferencias
     printf("\nNet transfers by thread \n");
 
     for(int i = num_threads; i < (2*num_threads); i++){
@@ -182,7 +183,7 @@ void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads
     }
     printf("Total: %d\n", total_transferred);
 
-    //Balances
+    //Balances 
     printf("\nAccount balance\n");
 
     for(int i=0; i < bank->num_accounts; i++) {
