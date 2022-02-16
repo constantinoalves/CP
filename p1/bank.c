@@ -187,10 +187,8 @@ void print_balances(struct bank *bank, struct thread_info *thrs, int num_threads
     printf("\nAccount balance\n");
 
     for(int i=0; i < bank->num_accounts; i++) {
-        pthread_mutex_lock(&bank->mutex[i]);
         printf("%d: %d\n", i, bank->accounts[i]);
         bank_total += bank->accounts[i];
-        pthread_mutex_unlock(&bank->mutex[i]);
     }
     printf("Total: %d\n", bank_total);
 
@@ -234,7 +232,7 @@ int main (int argc, char **argv)
     // Default values for the options
     opt.num_threads  = 5;
     opt.num_accounts = 10;
-    opt.iterations   = 1;
+    opt.iterations   = 10;
     opt.delay        = 10;
 
     read_options(argc, argv, &opt);
